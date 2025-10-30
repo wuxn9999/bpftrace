@@ -29,6 +29,14 @@ target_link_libraries(ast PUBLIC ast_defs arch compiler_core parser)
 if(STATIC_LINKING)
   include(Util)
 
+  if(${LLVM_VERSION_MAJOR} VERSION_LESS 18)
+    set(clang_lib_include_fixer_plugin clangIncludeFixerPlugin)
+    set(clang_lib_tidy_plugin clangTidyPlugin)
+  else()
+    unset(clang_lib_include_fixer_plugin)
+    unset(clang_lib_tidy_plugin)
+  endif()
+
   set(clang_libs
       clangAST
       clangAnalysis
@@ -38,14 +46,14 @@ if(STATIC_LINKING)
       clangEdit
       clangFormat
       clangFrontend
-      clangIncludeFixerPlugin
+      ${clang_lib_include_fixer_plugin}
       clangIndex
       clangLex
       clangParse
       clangRewrite
       clangSema
       clangSerialization
-      clangTidyPlugin
+      ${clang_lib_tidy_plugin}
       clangToolingCore)
 
   set(llvm_lib_names
