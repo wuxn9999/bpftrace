@@ -16,8 +16,8 @@
 
 namespace bpftrace {
 
-const int MAX_STACK_SIZE = 1024;
-const int DEFAULT_STACK_SIZE = 127;
+const int MAX_STACK_SIZE = 64;
+const int DEFAULT_STACK_SIZE = 32;
 const int COMM_SIZE = 16;
 
 enum class Type : uint8_t {
