@@ -251,6 +251,16 @@ ScopedExpr CodegenLLVM::kstack_ustack(const std::string &ident,
                        std::vector<Value *>{},
                        loc);
   b_.CreateBr(merge_block);
+
+  BasicBlock *dummy_block = BasicBlock::Create(module_->getContext(),
+                                               "dummy_block",
+                                               parent);
+  b_.SetInsertPoint(dummy_block);
+  // cannot reach this instruction but to avoid an empty block
+  b_.CreateBr(merge_block);
+
+  // trick: avoid back-edges
+  merge_block->moveAfter(dummy_block);
   b_.SetInsertPoint(merge_block);
 
   // ustack keys are special: see IRBuilderBPF::GetStackStructType()
