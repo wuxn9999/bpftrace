@@ -3851,7 +3851,7 @@ void CodegenLLVM::generate_maps(const RequiredResources &required_resources,
                         libbpf::BPF_MAP_TYPE_PERCPU_ARRAY,
                         1,
                         CreateInt32(),
-                        CreateArray(max_stack_limit, CreateUInt64()));
+                        CreateArray(MAX_STACK_SIZE, CreateUInt64()));
   }
 
   if (codegen_resources.needs_join_map) {
@@ -4312,57 +4312,76 @@ llvm::Function *CodegenLLVM::createMurmurHash2Func()
   b_.CreateStore(b_.getInt8(0), i);
 
   llvm::Function *parent = b_.GetInsertBlock()->getParent();
-  BasicBlock *while_cond = BasicBlock::Create(module_->getContext(),
-                                              "while_cond",
-                                              parent);
-  BasicBlock *while_body = BasicBlock::Create(module_->getContext(),
-                                              "while_body",
-                                              parent);
-  BasicBlock *while_end = BasicBlock::Create(module_->getContext(),
-                                             "while_end",
-                                             parent);
-  b_.CreateBr(while_cond);
-  b_.SetInsertPoint(while_cond);
-  auto *cond = b_.CreateICmp(CmpInst::ICMP_ULT,
-                             b_.CreateLoad(b_.getInt8Ty(), i),
-                             b_.CreateLoad(b_.getInt8Ty(), nr_stack_frames),
-                             "length.cmp");
-  b_.CreateCondBr(cond, while_body, while_end);
+  std::vector<BasicBlock *> loop_conditions;
+  std::vector<BasicBlock *> loop_bodies;
 
-  b_.SetInsertPoint(while_body);
+  for (int loop_count = 0; loop_count < MAX_STACK_SIZE; loop_count++) {
+    BasicBlock *loop_cond = BasicBlock::Create(module_->getContext(),
+                                               "unrolled_loop_" +
+                                               std::to_string(loop_count) +
+                                               "_condition",
+                                               parent);
+    loop_conditions.push_back(loop_cond);
+    BasicBlock *loop_body = BasicBlock::Create(module_->getContext(),
+                                               "unrolled_loop_" +
+                                               std::to_string(loop_count) +
+                                               "_body",
+                                               parent);
+    loop_bodies.push_back(loop_body);
+  }
 
-  // uint64_t k = stack[i];
-  Value *stack_ptr = b_.CreateGEP(b_.getInt64Ty(),
-                                  stack_addr,
-                                  b_.CreateLoad(b_.getInt8Ty(), i));
-  b_.CreateStore(b_.CreateLoad(b_.getInt64Ty(), stack_ptr), k);
+  BasicBlock *loop_end = BasicBlock::Create(module_->getContext(),
+                                            "loop_end",
+                                            parent);
+  b_.CreateBr(loop_conditions[0]);
 
-  // k *= m;
-  b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), k), m), k);
+  for (int loop_count = 0; loop_count < MAX_STACK_SIZE; loop_count++) {
+    b_.SetInsertPoint(loop_conditions[loop_count]);
+    auto *cond = b_.CreateICmp(CmpInst::ICMP_ULT,
+                               b_.CreateLoad(b_.getInt8Ty(), i),
+                               b_.CreateLoad(b_.getInt8Ty(), nr_stack_frames),
+                               "length_" + std::to_string(loop_count) + ".cmp");
+    b_.CreateCondBr(cond, loop_bodies[loop_count], loop_end);
 
-  // // k ^= k >> r
-  b_.CreateStore(b_.CreateXor(b_.CreateLoad(b_.getInt64Ty(), k),
-                              b_.CreateLShr(b_.CreateLoad(b_.getInt64Ty(), k),
-                                            r)),
-                 k);
+    b_.SetInsertPoint(loop_bodies[loop_count]);
 
-  // // k *= m
-  b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), k), m), k);
+    // uint64_t k = stack[i];
+    Value *stack_ptr = b_.CreateGEP(b_.getInt64Ty(),
+                                    stack_addr,
+                                    b_.CreateLoad(b_.getInt8Ty(), i));
+    b_.CreateStore(b_.CreateLoad(b_.getInt64Ty(), stack_ptr), k);
 
-  // id ^= k
-  b_.CreateStore(b_.CreateXor(b_.CreateLoad(b_.getInt64Ty(), id),
-                              b_.CreateLoad(b_.getInt64Ty(), k)),
-                 id);
+    // k *= m;
+    b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), k), m), k);
 
-  // id *= m
-  b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), id), m), id);
+    // // k ^= k >> r
+    b_.CreateStore(b_.CreateXor(b_.CreateLoad(b_.getInt64Ty(), k),
+                                b_.CreateLShr(b_.CreateLoad(b_.getInt64Ty(), k),
+                                              r)),
+                   k);
 
-  // ++i
-  b_.CreateStore(b_.CreateAdd(b_.CreateLoad(b_.getInt8Ty(), i), b_.getInt8(1)),
-                 i);
+    // // k *= m
+    b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), k), m), k);
 
-  b_.CreateBr(while_cond);
-  b_.SetInsertPoint(while_end);
+    // id ^= k
+    b_.CreateStore(b_.CreateXor(b_.CreateLoad(b_.getInt64Ty(), id),
+                                b_.CreateLoad(b_.getInt64Ty(), k)),
+                   id);
+
+    // id *= m
+    b_.CreateStore(b_.CreateMul(b_.CreateLoad(b_.getInt64Ty(), id), m), id);
+
+    // ++i
+    b_.CreateStore(b_.CreateAdd(b_.CreateLoad(b_.getInt8Ty(), i), b_.getInt8(1)),
+                   i);
+
+    if (loop_count + 1 < MAX_STACK_SIZE)
+      b_.CreateBr(loop_conditions[loop_count + 1]);
+    else
+      b_.CreateBr(loop_end);
+  }
+
+  b_.SetInsertPoint(loop_end);
 
   b_.CreateLifetimeEnd(nr_stack_frames);
   b_.CreateLifetimeEnd(seed_addr);
