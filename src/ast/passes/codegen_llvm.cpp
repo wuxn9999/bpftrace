@@ -1388,6 +1388,38 @@ ScopedExpr CodegenLLVM::visit(Call &call)
     auto left_string = visit(&left_arg);
     auto right_string = visit(&right_arg);
 
+    bool left_is_literal = left_arg.is_literal;
+    bool right_is_literal = right_arg.is_literal;
+    String *left_literal = nullptr;
+    String *right_literal = nullptr;
+
+    if (left_is_literal) {
+      left_literal = dynamic_cast<String *>(call.vargs.at(0));
+      if (left_literal == nullptr)
+        left_is_literal = false;
+    }
+
+    if (right_is_literal) {
+      right_literal = dynamic_cast<String *>(call.vargs.at(1));
+      if (right_literal == nullptr)
+        right_is_literal = false;
+    }
+
+    if (left_is_literal && right_is_literal) {
+      return ScopedExpr(b_.CreateStrncmp(
+          left_literal->str, right_literal->str, size, false));
+    }
+
+    if (!left_is_literal && right_is_literal) {
+      return ScopedExpr(b_.CreateStrncmp(
+          left_string.value(), right_literal->str, size, false));
+    }
+
+    if (left_is_literal && !right_is_literal) {
+      return ScopedExpr(b_.CreateStrncmp(
+          right_string.value(), left_literal->str, size, false));
+    }
+
     return ScopedExpr(b_.CreateStrncmp(
         left_string.value(), right_string.value(), size, false));
   } else if (call.func == "strcontains") {
@@ -1579,6 +1611,39 @@ ScopedExpr CodegenLLVM::binop_string(Binop &binop)
 
   size_t len = std::min(binop.left->type.GetSize(),
                         binop.right->type.GetSize());
+
+  bool left_is_literal = binop.left->is_literal;
+  bool right_is_literal = binop.right->is_literal;
+  String *left_literal = nullptr;
+  String *right_literal = nullptr;
+
+  if (left_is_literal) {
+    left_literal = dynamic_cast<String *>(binop.left);
+    if (left_literal == nullptr)
+      left_is_literal = false;
+  }
+
+  if (right_is_literal) {
+    right_literal = dynamic_cast<String *>(binop.right);
+    if (right_literal == nullptr)
+      right_is_literal = false;
+  }
+
+  if (left_is_literal && right_is_literal) {
+    return ScopedExpr(b_.CreateStrncmp(
+        left_literal->str, right_literal->str, len, inverse));
+  }
+
+  if (!left_is_literal && right_is_literal) {
+    return ScopedExpr(b_.CreateStrncmp(
+        left_string.value(), right_literal->str, len, inverse));
+  }
+
+  if (left_is_literal && !right_is_literal) {
+    return ScopedExpr(b_.CreateStrncmp(
+        right_string.value(), left_literal->str, len, inverse));
+  }
+
   return ScopedExpr(b_.CreateStrncmp(
       left_string.value(), right_string.value(), len, inverse));
 }
@@ -1627,6 +1692,21 @@ ScopedExpr CodegenLLVM::binop_buf(Binop &binop)
 
   size_t len = std::min(binop.left->type.GetSize(),
                         binop.right->type.GetSize());
+
+  bool right_is_literal = binop.right->is_literal;
+  String *right_literal = nullptr;
+
+  if (right_is_literal) {
+    right_literal = dynamic_cast<String *>(binop.right);
+    if (right_literal == nullptr)
+      right_is_literal = false;
+  }
+
+  if (right_is_literal) {
+    return ScopedExpr(b_.CreateStrncmp(
+        left_string, right_literal->str, len, inverse));
+  }
+
   return ScopedExpr(b_.CreateStrncmp(left_string, right_string, len, inverse));
 }
 

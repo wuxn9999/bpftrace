@@ -1604,6 +1604,130 @@ Value *IRBuilderBPF::CreateStrncmp(Value *str1,
   return result;
 }
 
+Value *IRBuilderBPF::CreateStrncmp(Value *str1,
+                                   const std::string &str2,
+                                   uint64_t n,
+                                   bool inverse)
+{
+  uint64_t max_loop = std::min(static_cast<uint64_t>(str2.length() + 1), n);
+  llvm::Function *parent = GetInsertBlock()->getParent();
+  AllocaInst *store = CreateAllocaBPF(getInt1Ty(), "strcmp.result");
+  CreateStore(getInt1(!inverse), store);
+  std::vector<BasicBlock *> loop_bodies;
+
+  for (uint64_t i = 0; i < max_loop; i++) {
+    BasicBlock *loop_body = BasicBlock::Create(module_.getContext(),
+                                               "strcmp_unrolled_loop_" +
+                                               std::to_string(i) +
+                                               "_body",
+                                               parent);
+    loop_bodies.push_back(loop_body);
+  }
+
+  BasicBlock *strcmp_eq = BasicBlock::Create(module_.getContext(),
+                                             "strcmp_eq",
+                                             parent);
+  BasicBlock *strcmp_end = BasicBlock::Create(module_.getContext(),
+                                              "strcmp_end",
+                                              parent);
+
+  CreateBr(loop_bodies[0]);
+
+  for (uint64_t i = 0; i < max_loop; i++) {
+    SetInsertPoint(loop_bodies[i]);
+
+    Value *l;
+    auto *ptr_l = CreateGEP(getInt8Ty(), str1, { getInt32(i) });
+    l = CreateLoad(getInt8Ty(), ptr_l);
+    Value *r = getInt8(str2[i]);
+
+    // This includes null-character check.
+    Value *cmp = CreateICmpNE(l, r,
+                              "strcmp_unrolled_loop_" +
+                              std::to_string(i) +
+                              ".cmp");
+
+    if (i + 1 < max_loop)
+      CreateCondBr(cmp, strcmp_end, loop_bodies[i + 1]);
+    else
+      CreateCondBr(cmp, strcmp_end, strcmp_eq);
+  }
+
+  SetInsertPoint(strcmp_eq);
+  CreateStore(getInt1(inverse), store);
+  CreateBr(strcmp_end);
+
+  SetInsertPoint(strcmp_end);
+  // store is a pointer to bool (i1 *)
+  Value *result = CreateLoad(getInt1Ty(), store);
+  CreateLifetimeEnd(store);
+  result = CreateIntCast(result, getInt64Ty(), false);
+
+  return result;
+}
+
+Value *IRBuilderBPF::CreateStrncmp(const std::string &str1,
+                                   const std::string &str2,
+                                   uint64_t n,
+                                   bool inverse)
+{
+  uint64_t max_loop = std::min({ static_cast<uint64_t>(str1.length() + 1),
+                                 static_cast<uint64_t>(str2.length() + 1),
+                                 n, });
+  llvm::Function *parent = GetInsertBlock()->getParent();
+  AllocaInst *store = CreateAllocaBPF(getInt1Ty(), "strcmp.result");
+  CreateStore(getInt1(!inverse), store);
+  std::vector<BasicBlock *> loop_bodies;
+
+  for (uint64_t i = 0; i < max_loop; i++) {
+    BasicBlock *loop_body = BasicBlock::Create(module_.getContext(),
+                                               "strcmp_unrolled_loop_" +
+                                               std::to_string(i) +
+                                               "_body",
+                                               parent);
+    loop_bodies.push_back(loop_body);
+  }
+
+  BasicBlock *strcmp_eq = BasicBlock::Create(module_.getContext(),
+                                             "strcmp_eq",
+                                             parent);
+  BasicBlock *strcmp_end = BasicBlock::Create(module_.getContext(),
+                                              "strcmp_end",
+                                              parent);
+
+  CreateBr(loop_bodies[0]);
+
+  for (uint64_t i = 0; i < max_loop; i++) {
+    SetInsertPoint(loop_bodies[i]);
+
+    Value *l = getInt8(str1[i]);
+    Value *r = getInt8(str2[i]);
+
+    // This includes null-character check.
+    Value *cmp = CreateICmpNE(l, r,
+                              "strcmp_unrolled_loop_" +
+                              std::to_string(i) +
+                              ".cmp");
+
+    if (i + 1 < max_loop)
+      CreateCondBr(cmp, strcmp_end, loop_bodies[i + 1]);
+    else
+      CreateCondBr(cmp, strcmp_end, strcmp_eq);
+  }
+
+  SetInsertPoint(strcmp_eq);
+  CreateStore(getInt1(inverse), store);
+  CreateBr(strcmp_end);
+
+  SetInsertPoint(strcmp_end);
+  // store is a pointer to bool (i1 *)
+  Value *result = CreateLoad(getInt1Ty(), store);
+  CreateLifetimeEnd(store);
+  result = CreateIntCast(result, getInt64Ty(), false);
+
+  return result;
+}
+
 Value *IRBuilderBPF::CreateStrcontains(Value *haystack,
                                        uint64_t haystack_sz,
                                        Value *needle,

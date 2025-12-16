@@ -120,6 +120,14 @@ public:
                                 AddrSpace as,
                                 const location &loc);
   Value *CreateStrncmp(Value *str1, Value *str2, uint64_t n, bool inverse);
+  Value *CreateStrncmp(Value *str1,
+                       const std::string &str2,
+                       uint64_t n,
+                       bool inverse);
+  Value *CreateStrncmp(const std::string &str1,
+                       const std::string &str2,
+                       uint64_t n,
+                       bool inverse);
   Value *CreateStrcontains(Value *val1,
                            uint64_t str1_size,
                            Value *val2,
